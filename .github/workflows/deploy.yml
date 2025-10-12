@@ -1,0 +1,77 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [ "release" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Deploy to EKS
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout repo
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # # 2️⃣ Install kubectl
+      # - name: Install kubectl
+      #   uses: azure/setup-kubectl@v3
+      #   with:
+      #     version: 'v1.29.0'  # or match your EKS cluster version
+      #   id: install
+
+      # 3️⃣ Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      # 4️⃣ Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # # 5️⃣ Load secrets from AWS Secrets Manager
+      # - name: Load secrets and save to app.env
+      #   run: |
+      #     aws secretsmanager get-secret-value \
+      #       --secret-id simple_bank \
+      #       --query SecretString \
+      #       --output text \
+      #     | jq -r 'to_entries | map("\(.key)=\(.value)") | .[]' > app.env
+
+      # 6️⃣ Build, tag, and push image to ECR
+      - name: Build, tag, and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: simplebank
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building Docker image..."
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                       -t $ECR_REGISTRY/$REPOSITORY:latest .
+          echo "Pushing Docker image to ECR..."
+          docker push -a $ECR_REGISTRY/$ECR_REPOSITORY
+
+      # # 7️⃣ Update kubeconfig for EKS cluster
+      # - name: Update kubeconfig
+      #   run: aws eks update-kubeconfig --name simple-bank --region ap-south-1
+
+      # # 8️⃣ Deploy to EKS
+      # - name: Deploy to Amazon EKS
+      #   run: |
+      #     echo "Applying Kubernetes manifests..."
+      #     kubectl apply -f eks/aws-auth.yaml
+      #     kubectl apply -f eks/deployment.yaml
+      #     kubectl apply -f eks/service.yaml
+      #     kubectl apply -f eks/issuer.yaml
+      #     kubectl apply -f eks/ingress.yaml
+      #     echo "Restarting deployment..."
+      #     kubectl rollout restart -f eks/deployment.yaml
